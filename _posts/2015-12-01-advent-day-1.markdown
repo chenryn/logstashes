@@ -1,0 +1,60 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 1
+category: logstash
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 1
+---
+
+Advent Calendar 是各大技术社区每年 12 月大多会举办的一个系列活动。原意是圣诞节前夕的小礼品，延伸为每天一篇技术小分享的意思。最常见的包括 Perl Advent、sysadmin advent、web advent、performance advent 等。个人从 2009 年开始每年都看，从2013 年开始偶尔会参加其他社区的 advent 写作。今年考虑自己在 ELK Stack 上专注较多，在历次技术大会和最终出版的《ELK Stack权威指南》之外，又有一些新的发现和收获，干脆尝试一把自己一个人的 advent，也算是对 ELK 小知识的一种查漏补缺。
+
+今天是 12 月 1 日，第一天，开天辟地，让我们也从最简单而又容易被忽略的一个小技巧开始吧！
+
+每个上手 ELK 的新用户，肯定都需要测试一下读取文件输出到终端这步。在 Logstash 中，也就是配置这样一段：
+
+{% highlight ruby %}
+input {
+    file {
+        path => ["/data/test.log"]
+    }
+}
+output {
+    stdout {
+        codec => rubydebug
+    }
+}
+{% endhighlight %}
+
+不过很多新人的测试随后就卡在第二步了：当你修改一下配置，准备添加一段 filter 配置再重复运行 logstash 命令时，发现**终端一直停滞没有输出。**
+
+这是因为：Logstash 会记录自己读取文件内容的偏移量到一个隐藏文件里，默认情况下，下次启动，他会从这个偏移量继续往后读，避免重复读取数据。
+
+这个隐藏文件，叫做 `$HOME/.sincedb_****`。过去很多文档，在解释了这个原理后，都会告诉大家解决办法：*每次重新运行 logstash 命令之前，删除掉家目录下的 sincedb 隐藏文件。*
+
+但是这种办法很笨，不是么？
+
+今天告诉大家一个更方便的办法，改用下面这段 Logstash 配置：
+
+{% highlight ruby %}
+input {
+    file {
+        path => ["/data/test.log"]
+        start_position => "beginning"
+        sincedb_path => "/dev/null"
+    }
+}
+output {
+    stdout {
+        codec => rubydebug
+    }
+}
+{% endhighlight %}
+
+要点就在这行 `sincedb_path => "/dev/null"` 了！该参数用来指定 sincedb 文件名，但是如果我们设置为 `/dev/null` 这个 Linux 系统上特殊的空洞文件，那么 logstash 每次重启进程的时候，尝试读取 sincedb 内容，都只会读到空白内容，也就会理解成之前没有过运行记录，自然就从初始位置开始读取了！
+
+好了，第一天就是这样。更多内容，敬请期待。
+
+想了解更全面的 ELK Stack 知识和细节，欢迎购买我的《[ELK Stack权威指南](http://search.jd.com/Search?keyword=ELK%20stack)》，也欢迎加 QQ 群：315428175 哟。
+
+
