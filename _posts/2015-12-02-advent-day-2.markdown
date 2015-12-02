@@ -1,0 +1,70 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 2
+category: logstash
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 2
+---
+
+Elasticsearch 中有些高级特性，可能不太常用，但是在恰当场景下，又非常有效果。今天，我们来说说 **nested object**。
+
+我们都知道，Elasticsearch 宣传中是 schemaless 的。但实际使用中，并不是完全的随意。比如过多的 kv 切割，会导致 mapping 大小暴涨，对集群稳定性是个不小的挑战。
+
+以 urlparams 为例，下面这段 urlparams 直接通过 logstash-filter-kv 切割得到的结果，需要在 mapping 中占用 4 个字段的定义。
+
+{% highlight json %}
+  "urlparams" : {
+    "uid" : "1234567890",
+    "action" : "payload",
+    "t" : "1449053032000",
+    "pageid" : "v6"
+  }
+{% endhighlight %}
+
+如果哪个开发一时想不开，把 urlparams 写成 `uid:123456789&action=payload&1449053032000=t&pageid=v6`，那基本上整个 ES 集群就会被过于频繁的 mapping 更新搞挂了。
+
+这时候，我们修改一下 mapping 定义：
+
+{% highlight json %}
+{
+  "accesslog" : {
+    "properties" : {
+      "urlparams" : {
+        "type" : "nested",
+        "properties" : {
+            "key" : { "type" : "string", "index" : "not_analyzed", "doc_values" : true },
+            "value" : { "type" : "string", "index" : "not_analyzed", "doc_values" : true }
+        }
+      }
+    }
+  } 
+}
+{% endhighlight %}
+
+同时在 Logstash 的 filter 配置中添加一段：
+
+{% highlight json %}
+            if [urlargs] {
+                ruby {
+                    init => "@kname = ['key','value']"
+                    code => "event['urlparams'] = event['urlargs'].split('&').collect {|i| Hash[@kname.zip(i.split('='))]}"
+                    remove_field => [ "urlargs","uri","request" ]
+                }
+            }
+{% endhighlight %}
+
+生成的 JSON 数据变成这个样子：
+
+{% highlight json %}
+  "urlargs": [
+    { "key": "uid", "value": "1234567890" },
+    { "key": "action", "value": "payload" },
+    { "key": "1449053032000", "value": "t" },
+    { "key": "pageid", "value": "v6" }
+  ]
+{% endhighlight %}
+
+这样，再错乱的 urlparams，也不会发生 mapping 变更，导致集群故障了！
+
+想了解更全面的 ELK Stack 知识和细节，欢迎购买我的《[ELK Stack权威指南](http://search.jd.com/Search?keyword=ELK%20stack)》，也欢迎加 QQ 群：315428175 哟。
