@@ -1,10 +1,10 @@
 ---
 layout: post
-title: ELK Stack Advent Calendar Day 3
+title: ELK Stack Advent Calendar Day 4
 category: elasticsearch
 ---
 {% include JB/setup %}
-# ELK Stack Advent Calendar Day 3
+# ELK Stack Advent Calendar Day 4
 ---
 
 昨天我们通过 nested aggregation 计算出来，视频卡顿次数最多的是北京。不过这个结论似乎也没有什么奇怪的，北京的网民本身就多嘛。
