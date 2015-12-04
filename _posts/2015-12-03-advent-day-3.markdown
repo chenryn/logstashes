@@ -1,0 +1,158 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 3
+category: elasticsearch
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 3
+---
+
+话接上回，我们只是解决了写数据的问题，这种格式不太符合常规的数据怎么读，也需要我们相应的做出点改变。
+
+今天以一个实际的例子来讲。我曾经处理过一份数据，记录的是视频播放的卡顿情况。其中有一个数组，每次卡顿就新增一个对象元素。所以设计的 mapping 如下：
+
+```
+         "video_time_duration" : {
+           "type": "nested",
+           "properties" : {
+             "duration" : {
+               "type" : "long",
+               "doc_values" : true
+             },
+             "type" : {
+               "type" : "long",
+               "doc_values" : true
+             }
+           }
+         },
+```
+
+其中 `type` 只有 0 或 1 两个可能，0 表示播放正常，1 表示卡顿。所以下面我们发一个请求，要求是计算这样的结果：
+
+**出现了播放卡顿的用户，单次卡顿时长在10到200ms的，最常见于哪些城市？**
+
+下面是我们最终的查询请求 JSON：
+
+```json
+{
+  "size" : 0,
+  "query" : {
+    "nested" : {
+      "path" : "video_time_duration",
+      "query" : {
+        "match" : {
+          "video_time_duration.type" : "1"
+        }
+      }
+    }
+  },
+  "aggs" : {
+    "video" : {
+      "nested" : {
+        "path" : "video_time_duration"
+      },
+      "aggs" : {
+        "filter_type" : {
+          "filter" : {
+            "term" : {
+              "video_time_duration.type" : "1"
+            }
+          },
+          "aggs" : {
+            "duration_ranges" : {
+              "range" : {
+                "field" : "video_time_duration.duration",
+                "ranges" : [
+                  { "from" : 10, "to" : 200 }
+                ]
+              },
+              "aggs" : {
+                "city" : {
+                  "reverse_nested": {},
+                  "aggs" : {
+                    "city_terms" : {
+                      "terms" : {
+                        "field" : "geoip.city"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+很明显的可以看到对 nested object 里存的数据，不管是做 query 还是 agg，都需要显式的加上 `"nested": {"path" : "video_time_duration"` 的声明。这样，才能保证我们取到的 duration 数值是对应 type 为卡顿的，而不是流畅播放的。
+
+大家可能注意到，我同时在 query 和 aggFilter 中重复了一场 term 过滤。其中这次 nested query 是不必要的，除了作为语法展示以外，也有一个减少 hits 数的作用。但是和一般的请求不同的是，这里不可以去掉 nested agg 里的 term filter，因为 nested query 只是拿到『有过卡顿』的数据 id。不加 filter，聚合 duration 的时候，会把卡过但也流畅过的那部分都计算在内。
+
+另一个要点：当我们过滤好 nested 数据的时候，要取顶层其他字段的内容，在 sub agg 里是无法直接获取的，需要额外使用一次 `reverse_nested` 来跳出这个 nested path，才可以恢复正常的 agg 路径。
+
+最终得到的响应如下：
+
+```json
+{
+  "took" : 4672,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 100,
+    "successful" : 100,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : 9560309,
+    "max_score" : 0.0,
+    "hits" : [ ]
+  },
+  "aggregations" : {
+    "video" : {
+      "doc_count" : 33713503,
+      "filter_type" : {
+        "doc_count" : 25441559,
+        "duration_ranges" : {
+          "buckets" : [ {
+            "key" : "10.0-200.0",
+            "from" : 10.0,
+            "from_as_string" : "10.0",
+            "to" : 200.0,
+            "to_as_string" : "200.0",
+            "doc_count" : 2521720,
+            "city" : {
+              "doc_count" : 2521720,
+              "city_terms" : {
+                "doc_count_error_upper_bound" : 0,
+                "sum_other_doc_count" : 2267886,
+                "buckets" : [ {
+                    "key" : "北京",
+                    "doc_count" : 142761
+                  }, {
+                    "key" : "广州",
+                    "doc_count" : 104677
+                  }
+                ]
+              }
+            }
+          } ]
+        }
+      }
+    }
+  }
+}
+```
+
+响应数据中，我们可以直接看这些 hits 和 doc_count 数据。他们表示：
+
+* 一共命中了『有过卡顿』的视频播放次数：9560309；
+* 其中记录下来的播放间隔 33713503 次；
+* 里面有 25441559 次是卡顿(减一下即 8271944 次是流畅咯)；
+* 里面卡顿时长在 10-200 ms 的是 2521720 次；
+* 这些卡顿出现最多的在北京，发生了 142761 次。
+
+数据蛮有意思吧。ES 能告诉你的还不止这点。更有趣的，明天见。
+
+想了解更全面的 ELK Stack 知识和细节，欢迎购买我的《[ELK Stack权威指南](http://search.jd.com/Search?keyword=ELK%20stack)》，也欢迎加 QQ 群：315428175 哟。
