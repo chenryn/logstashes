@@ -1,0 +1,95 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 3
+category: elasticsearch
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 3
+---
+
+昨天我们通过 nested aggregation 计算出来，视频卡顿次数最多的是北京。不过这个结论似乎也没有什么奇怪的，北京的网民本身就多嘛。
+
+Elasticsearch 还有一个有趣的聚合方式，叫 `significant_terms`。这时候就可以派上用场了！
+
+我们把昨天的 query JSON 中，最后一段 sub agg 改成这样：
+
+```json
+    "city_terms" : {
+        "significant_terms" : {
+            "field" : "geoip.city",
+            "size" : "4"
+        }
+    }
+```
+
+重新运行请求，得到的响应结果是这样的：
+
+```json
+"city_terms" : {
+  "doc_count" : 2521720,
+  "buckets" : [ {
+    "key" : "武汉",
+    "doc_count" : 85980,
+    "score" : 0.1441705001066121,
+    "bg_count" : 15347191
+    }, {
+    "key" : "北京",
+    "doc_count" : 142761,
+    "score" : 0.11808069152203737,
+    "bg_count" : 43176384
+    }, {
+    "key" : "广州",
+    "doc_count" : 104677,
+    "score" : 0.10716870365361204,
+    "bg_count" : 27274482
+    }, {
+    "key" : "郑州",
+    "doc_count" : 59234,
+    "score" : 0.09915501610550795,
+    "bg_count" : 10587590
+  } ]
+}
+```
+
+大家一定发现了：第一名居然变成了**武汉**！
+
+而且每个结果后面，还多出来了 `score` 和 `bg_count` 两个数据。这个 `bg_count` 是怎么回事呢？
+
+这就是 significant_terms 的作用了。这个 agg 的大概计算步骤是这样：
+
+1. 计算一个 term 在整个索引中的比例，作为背景计数(background)，这里是 15347191 / 2353406423；
+2. 计算一个 term 在 parent agg 中的比例，作为前景计数(foreground)，这里是 85980 / 2521720；
+3. 用 fgpercent 除以 bgpercent，得到这个 term 在 parent agg 的条件下比例凸显的可能性。
+
+由于两个作分母的总数其实大家都是相等的，其实比较的就是各 term 的 doc_count / bg_count 了。
+
+当然，实际的 score 不只是这么简单，还有其他综合因素。毕竟也不能给出来本身就没啥关注度的数据嘛。
+
+我们还可以来验证一下『武汉』的 bg_count 是不是这个意思：
+
+```
+curl -XPOST 'http://10.19.0.67:9200/logstash-mweibo-2015.12.02/_count?pretty' -d '{
+  "query" : {
+    "match" : {
+      "geoip.city" : "武汉"
+    }
+  }
+}'
+```
+
+结果如下：
+
+```json
+{
+  "count" : 15347191,
+  "_shards" : {
+    "total" : 100,
+    "successful" : 100,
+    "failed" : 0
+  }
+}
+```
+
+数值完全对上了。没错，`bg_count` 就是『武汉』在整个索引里的总数。
+
+想了解更全面的 ELK Stack 知识和细节，欢迎购买我的《[ELK Stack权威指南](http://search.jd.com/Search?keyword=ELK%20stack)》，也欢迎加 QQ 群：315428175 哟。
