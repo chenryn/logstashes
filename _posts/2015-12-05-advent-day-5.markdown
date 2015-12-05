@@ -1,0 +1,47 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 5
+category: kibana
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 5
+---
+
+前几天，我们已经一步步搞定了一个业务日志从 mapping 设计到异常统计追踪上的用法。作为一个工程师，自评 100 分 —— But，领导找上门来说：你这个结构怎么搞的嘛，在 Kibana 上完全没法搜索！让客服和分析师怎么办？
+
+因为 Kibana 上的输入框，默认使用 querystring 语法。这个里面压根没有对 nested object 的相关语法设计。
+
+不过经过仔细查阅，发现原来 Kibana4 的搜索输入框，其实除了 querystring 以外，还支持 JSON 字符串的方式直接定义 query！其具体处理方式就是：把你输入的字符串判断一下是否是 JSON，如果是 JSON，直接替换进 `{"query": 这里}`；如果不是，才生成一个 querystring query 放进 `{"query":{"query_string":""}}`
+
+那我们来尝试一下把第三天写的那个 nested query 贴进搜索框里。内容是：
+
+```json
+{
+  "nested" : {
+    "path" : "video_time_duration",
+    "query" : {
+      "match" : {
+        "video_time_duration.type" : "1"
+      }
+    }
+  }
+}
+```
+
+意外发生了！Kibana4 竟然在页面上弹出一个错误提示，而且搜索栏的放大镜图标也变成不可以点击的灰色样式，敲回车同样没有反应：
+
+![](/images/elk-advent-2015-05.png)
+
+当然我很确定我的数据是没问题的。这时候 Kibana4 的另一个特性救了我：**它默认会把所有可修改的状态都 rison 序列化了放在 URL 里！**于是我尝试直接在浏览器地址栏里输入下面这段 URL：
+
+```
+http://kibana:5601/#/discover?_g=()&_a=(columns:!(_source),index:%5Blogstash-mweibo-%5DYYYY.MM.DD,interval:auto,query:(nested:(path:video_time_duration,query:(term:(video_time_duration.type:1)))),sort:!('@timestamp',desc))
+```
+
+地址栏回车之后，页面刷新，看到搜索结果更新(如上图)！虽然搜索栏依然有报错，但实际上 nested query 生效了，我们在下面 search 里看到的都是成功过滤出来的『有过卡顿的视频播放记录』日志。
+
+感谢 Kibana 如此开放的设计原则！
+
+ps: 目前 nested aggregation 还没法像这样简单的绕过，不过已经有相关 pull request 在 review 中，或许 Kibana4.3/4.4 的时候就会合并了。有兴趣的同学，也可以跟我一样先睹为快哟：<https://github.com/elastic/kibana/pull/5411>
+
+想了解更全面的 ELK Stack 知识和细节，欢迎购买我的《[ELK Stack权威指南](http://search.jd.com/Search?keyword=ELK%20stack)》，也欢迎加 QQ 群：315428175 哟。
