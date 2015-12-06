@@ -1,0 +1,86 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 6
+category: logstash
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 6
+---
+
+Elastic 公司最近推出了 beats 系列，在官方的 packet/top/file{beat} 之外，社区也自发制作了一些比如 docker/nginx/
+
+不过很可惜的是：nginxbeat 只支持两个数据来源：标准的 [ngx_http_stub_status_module](http://nginx.org/en/docs/http/ngx_http_stub_status_module.html) 和商业版 Nginx Plus 的 [ngx_http_status_module](http://nginx.org/en/docs/http/ngx_http_status_module.html)
+
+我们都知道，ngx_http_stub_status_module 输出的信息太少，除了进程级别的连接数，啥都没有。那么，在使用开源版本 Nginx 的我们，还有别的办法么？
+
+在官网的第三方模块列表里，发现了一个韩国人写的 [nginx-module-vts](https://github.com/vozlt/nginx-module-vts)。这个扩展可以做到 vhost 级别的状态信息输出。(我知道国人还有很多类似的统计扩展，但是没上官网，不便普及，就忽略吧)
+
+但是，不懂 Golang 的话，没法自己动手实现一个 nginx-vts-beat 啊。怎么办？
+
+其实我们可以用 [logstash-input-http_poller]() 实现类似的功能。
+
+首先，我们要给自己的 Nginx 加上 vts 扩展。编译方式这里就不讲了，和所有其他第三方模块一样。配置方式详见 [README](https://github.com/vozlt/nginx-module-vts/blob/master/README.md)。我们这里假设是按照核心和非核心接口来统计 URL 的状态：
+
+```
+http {
+    vhost_traffic_status_zone;
+
+    map $uri $filter_uri {
+        default 'non-core';
+        /2/api/timeline core;
+        ~^/2/api/unread core;
+    }
+
+    server {
+        vhost_traffic_status_filter_by_set_key $filter_uri;
+        location /status {
+            auth_basic "Restricted"; 
+            auth_basic_user_file pass_file;
+            vhost_traffic_status_display;
+            vhost_traffic_status_display_format json;
+        }
+    }
+}
+```
+
+然后我们需要下面一段 Logstash 配置来定期获取这个数据：
+
+```
+input {
+  http_poller {
+    urls => {
+      0 => {
+        method => get
+        url => "http://localhost:80/status/format/json"
+        headers => {
+          Accept => "application/json"
+        }
+        auth => {
+          user => "YouKnowIKnow"
+          password => "IKnowYouDonotKnow"
+        }
+      }
+      1 => {
+        method => get
+        url => "http://localhost:80/status/control?cmd=reset&group=*"
+        headers => {
+          Accept => "application/json"
+        }
+        auth => {
+          user => "YouKnowIKnow"
+          password => "IKnowYouDonotKnow"
+        }
+      }
+    }
+    request_timeout => 60
+    interval => 60
+    codec => "json"
+  }
+}
+```
+
+这样，就可以每 60 秒，获得一次 vts 数据，并重置计数了。
+
+注意，`urls` 是一个 Hash，所以他的执行顺序是根据 Hash.map 来的，为了确保我们是先获取数据再重置，这里干脆用 0, 1 来作为 Hash 的 key，这样顺序就没问题了。
+
+想了解更全面的 ELK Stack 知识和细节，欢迎购买我的《[ELK Stack权威指南](http://search.jd.com/Search?keyword=ELK%20stack)》，也欢迎加 QQ 群：315428175 哟。

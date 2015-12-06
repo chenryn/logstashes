@@ -1,7 +1,7 @@
 ---
 layout: post
 title: ELK Stack Advent Calendar Day 2
-category: logstash
+category: elasticsearch
 ---
 {% include JB/setup %}
 # ELK Stack Advent Calendar Day 2
