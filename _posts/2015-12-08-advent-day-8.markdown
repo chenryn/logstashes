@@ -1,0 +1,35 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 8
+category: elasticsearch
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 8
+---
+
+Kibana4 上线后，又有同事找过来。还好这次是小问题：『新版的这个仪表盘顶部菜单栏太宽了啊。头顶上监控屏幕空间有限，能不能省省？』
+
+跟 Kibana3 相比，确实宽了点。这时候好几个方案瞬间进入我脑子里：
+
+1. 浏览器往下拖动一点，不过要确保定期刷新的时候还能回到拖动位置；
+2. 进 `ui/public/chrome/chrome.html` 里把 navbar 干掉；
+3. 添加一个 bootstrap 效果，navbar 默认隐藏，鼠标挪上去自动浮现。
+
+不过等打开 chrome.html 看了一下，发现 navbar 本身是有相关的隐藏判断的：
+
+```js
+<nav
+  ng-style="::{ background: chrome.getNavBackground() }"
+  ng-class="{ show: chrome.getVisible() }"
+  class="hide navbar navbar-inverse navbar-static-top">
+```
+
+这个设置在 `ui/public/chrome/api/angular.js` 里的 `internals.setVisibleDefault(!$location.search().embed);`。我们知道 `$locatio.search()` 是 AngularJS 的标准用法，这里也就是代表 URL 请求参数里是否有 `?embed` 选项。
+
+好了，我们试一下，把 `http://localhost:5601/app/kibana/#/dashboard/mydash` 改成 `http://localhost:5601/app/kibana/#/dashboard/mydash?embed`，回车，果然，整个菜单栏都消失了！同步消失的还有每个 panel 的编辑按钮。
+
+其实呢，embed 在页面上是有说明的，在 dashboard 的 share 连接里，提供了一个 iframe 分享方式，iframe 里使用的，就是 embed 链接！
+
+注意：Kibana4 部分版本的 share 说明中的 embed 位置生成的有问题，请小心。
+
+想了解更全面的 ELK Stack 知识和细节，欢迎购买我的《[ELK Stack权威指南](http://search.jd.com/Search?keyword=ELK%20stack)》，也欢迎加 QQ 群：315428175 哟。
