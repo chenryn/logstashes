@@ -1,0 +1,58 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 7
+category: logstash
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 7
+---
+
+ELK Stack 在入门学习过程中，必然会碰到自己修改定制索引映射(mapping)乃至模板(template)的问题。
+
+这时候，不少比较认真看 Logstash 文档的新用户会通过下面这段配置来制定自己的模板策略：
+
+```
+output {
+    elasticsearch {
+        host => "127.0.0.1"
+        manage_template => true
+        template => "/path/to/mytemplate"
+        template_name => "myname"
+    }
+}
+```
+
+然而随后就发现，自己辛辛苦苦修改出来的模板，通过 `curl -XGET 'http://127.0.0.1:9200/_template/myname'` 看也确实上传成功了，但实际新数据索引创建出来，就是没生效！
+
+这个原因是：Logstash 默认会上传一个名叫 **logstash** 的模板到 ES 里。如果你在使用上面这个配置之前，曾经运行过 Logstash（一般来说都会），那么 ES 里就已经存在这么一个模板了。你可以 `curl -XGET 'http://127.0.0.1:9200/_template/logstash'` 验证。
+
+这个时候，ES 里就变成有两个模板，logstash 和 myname，都匹配 `logstash-*` 索引名，要求设置一定的映射规则了。
+
+ES 会按照一定的规则来尝试自动 merge 多个都匹配上了的模板规则，最终运用到索引上: <https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-templates.html#multiple-templates>
+
+其中要点就是：template 是可以设置 `order` 参数的！而不写这个参数，默认的 order 值就是 0。order 值越大，在 merge 规则的时候优先级越高。
+
+所以，解决这个问题的办法很简单：在你自定义的 template 里，加一行，变成这样：
+
+```json
+{
+    "template" : "logstash-*",
+    "order" : 1,
+    "settings" : { ... },
+    "mappings" : { ... }
+}
+```
+
+当然，其实如果只从 Logstash 配置角度出发，其实更简单的办法是：直接修改原来默认的 *logstash* 模板，然后模板名称也不要改，就好了：
+
+```
+output {
+    elasticsearch {
+        host => "127.0.0.1"
+        manage_template => true
+        template_overwrite => true
+    }
+}
+```
+
+想了解更全面的 ELK Stack 知识和细节，欢迎购买我的《[ELK Stack权威指南](http://search.jd.com/Search?keyword=ELK%20stack)》，也欢迎加 QQ 群：315428175 哟。
