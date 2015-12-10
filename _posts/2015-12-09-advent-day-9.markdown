@@ -1,10 +1,10 @@
 ---
 layout: post
-title: ELK Stack Advent Calendar Day 7
+title: ELK Stack Advent Calendar Day 9
 category: logstash
 ---
 {% include JB/setup %}
-# ELK Stack Advent Calendar Day 7
+# ELK Stack Advent Calendar Day 9
 ---
 
 ELK Stack 在入门学习过程中，必然会碰到自己修改定制索引映射(mapping)乃至模板(template)的问题。
