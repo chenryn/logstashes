@@ -1,0 +1,70 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 14
+category: logstash
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 14
+---
+
+我们都知道 Elasticsearch 除了普通的 search 接口以外，还有另一个 Percolator 接口，天生用来做实时过滤告警的。但是由于接口比较复杂，在目前的 ELK 体系中不是很容易运用。
+
+而单纯从 Logstash 来做实时过滤报警，规则又不是很灵活。toplog.io 公司开发了一个 [logstash-output-percolator](https://github.com/toplog/logstash-output-percolator) 插件，在有一定既定条件的情况下，成功运用上了 Percolator 方案。
+
+这个插件的设计逻辑是：
+
+* 通过 logstash-filter-checksum 自主生成 ES 文档的 `_id`；
+* 使用上一步生成的 `_id` 同时发送 logstash-output-elasticsearch 和 logstash-output-percolator
+* Percolator 接口一旦过滤成功，将 `_id` 发送给 Redis 服务器
+* 其他系统从 Redis 服务器中获取 `_id` 即可从 ES 里拿到实际数据
+
+Percolator 接口的用法简单说是这样：
+
+1. 创建接口：
+
+```
+curl -XPUT 'localhost:9200/patterns/.percolator/my-pattern-id' -d '{"query" : {"match" : {"message" : "ERROR"} } }'
+```
+
+2. 过滤测试：
+
+```
+curl -XGET 'localhost:9200/my-index/my-type/_percolate' -d '{"doc" : {"message" : "ERROR: Service Apache failed to connect to MySQL"} }'
+```
+
+要点就是把文档放在 `doc` 属性里发送到 `_percolate` 里。
+
+对应的 Logstash 配置如下：
+
+```json
+filter {
+    checksum {
+        algorithm => "md5"
+        keys => ["message"]
+    }
+}
+output {
+    elasticsearch {
+        host => "localhost"
+        cluster => "my-cluster"
+        document_id => "%{logstash_checksum}"
+        index => "my-index"
+    }
+    percolator {
+        host => "es-balancer"
+        redis_host => ["localhost"]
+        document_id => "%{logstash_checksum}"
+        pattern_index => "patterns"
+    }
+}
+```
+
+连接上对应的 Redis，就可以看到报警信息了：
+
+```
+$ redis-cli
+127.0.0.1:6379> lrange percolator 0 1
+1) "{\"matches\":[\"2\"],\"document_id\":\"a5d5c5f69b26ac0597370c9b1e7a8111\"}"
+```
+
+想了解更全面的 ELK Stack 知识和细节，欢迎购买我的《[ELK Stack权威指南](http://search.jd.com/Search?keyword=ELK%20stack)》，也欢迎加 QQ 群：315428175 哟。
