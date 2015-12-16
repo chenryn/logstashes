@@ -1,0 +1,141 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 12
+category: elasticsearch
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 12
+---
+
+很多从 MySQL 转过来的 Elasticsearch 用户总是很习惯的问一个问题：『怎么在 ES 里实现 join 操作？』过去，我们的回答一般都是：通过类似宽表的思路，将数据平铺在一个索引里。不过，最近另一家 Lucene 开发商给出了另一个方案，他们开发了一个 Elasticsearch 插件，实现了 filter 层面的 join，GitHub 项目地址见：
+<https://github.com/sirensolutions/siren-join>
+
+不过需要提醒一下的是：**filter 层面**的意思，就是只相当于是 SQL 里的 `exists` 操作。所以目前对这个插件也不要抱有太大期望。今天我们来稍微演示一下。
+
+安装和其他 ES 插件一样：
+
+```
+# bin/plugin -i solutions.siren/siren-join/1.0
+```
+
+*注意 siren-join v1.0 只支持 ES 1.7 版本，2.0 版本支持据说正在开发中。*
+
+我们 bulk 上传这么一段数据：
+
+```json
+{"index":{"_index":"index1","_type":"type","_id":"1"}}
+{"id":1, "foreign_key":"13"}
+{"index":{"_index":"index1","_type":"type","_id":"2"}}
+{"id":2}
+{"index":{"_index":"index1","_type":"type","_id":"3"}}
+{"id":3, "foreign_key": "2"}
+{"index":{"_index":"index1","_type":"type","_id":"4"}}
+{"id":4, "foreign_key": "14"}
+{"index":{"_index":"index1","_type":"type","_id":"5"}}
+{"id":5, "foreign_key": "2"}
+{"index":{"_index":"index2","_type":"type","_id":"1"}}
+{"id":"1", "tag": "aaa"}
+{"index":{"_index":"index2","_type":"type","_id":"2"}}
+{"id":"2", "tag": "aaa"}
+{"index":{"_index":"index2","_type":"type","_id":"3"}}
+{"id":"3", "tag": "bbb"}
+{"index":{"_index":"index2","_type":"type","_id":"4"}}
+{"id":"4", "tag": "ccc"}
+```
+
+注意，siren-join 要求用来 join 的字段必须数据类型一致。所以，当我们要用 index2 的 `id` 和 index1 的 `foreign_key` 做 join 的时候，这两个字段就要保持一致，这里为了演示，特意都改成字符串。那么我们发起一个请求如下：
+
+```json
+# curl -s -XPOST 'http://localhost:9200/index1/_coordinate_search?pretty' -d '
+{
+    "query":{
+        "filtered":{
+            "query":{
+                "match_all":{}
+            },
+            "filter":{
+                "filterjoin":{
+                    "foreign_key":{
+                        "index":"index2",
+                        "type":"type",
+                        "path":"id",
+                        "query":{
+                            "terms":{
+                                "tag":["aaa"]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "aggs":{
+        "avg":{
+            "avg":{
+                "field":"id"
+            }
+        }
+    }
+}'
+```
+
+意即：从 index2 中搜索 `q=tag:aaa` 的数据的 id，查找 index1 中对应 `foreign_key` 的文档的 id 数据平均值。响应结果如下：
+
+```
+{
+    "coordinate_search" : {
+        "actions" : [ {
+            "relations" : {
+                "from" : {
+                    "indices" : [ ],
+                    "types" : [ ],
+                    "field" : "id"
+                },
+                "to" : {
+                    "indices" : null,
+                    "types" : null,
+                    "field" : "foreign_key"
+                }
+            },
+            "size" : 2,
+            "size_in_bytes" : 20,
+            "is_pruned" : false,
+            "cache_hit" : true,
+            "took" : 0
+        } ]
+    },
+    "took" : 2,
+    "timed_out" : false,
+    "_shards" : {
+        "total" : 5,
+        "successful" : 5,
+        "failed" : 0
+    },
+    "hits" : {
+        "total" : 2,
+        "max_score" : 1.0,
+        "hits" : [ {
+            "_index" : "index1",
+            "_type" : "type",
+            "_id" : "5",
+            "_score" : 1.0,
+            "_source":{"id":5, "foreign_key": "2"}
+        }, {
+            "_index" : "index1",
+            "_type" : "type",
+            "_id" : "3",
+            "_score" : 1.0,
+            "_source":{"id":3, "foreign_key": "2"}
+        } ]
+    },
+    "aggregations" : {
+        "avg" : {
+            "value" : 4.0
+        }
+    }
+}
+```
+
+响应告诉我们：从 index2 中搜索到 2 条参与 join 的文档，在 index1 中命中 2 条数据，最后求平均值为 4.0。
+
+想了解更全面的 ELK Stack 知识和细节，欢迎购买我的《[ELK Stack权威指南](http://search.jd.com/Search?keyword=ELK%20stack)》，也欢迎加 QQ 群：315428175 哟。
