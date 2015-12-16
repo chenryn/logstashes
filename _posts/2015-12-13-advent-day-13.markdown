@@ -1,0 +1,39 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 13
+category: logstash
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 13
+---
+
+Geo 定位在 ELK 应用中是非常重要和有用的一个环节。不幸的是：GeoIP 本身在国内的准确度实在堪忧。高春辉近年成立了一个项目，专注收集细化 IP 地址在国内的数据：<http://www.ipip.net>。数据分为免费版和收费版两种。项目提供了不少客户端，有趣的是，有社区贡献了一个 Logstash 插件：<https://github.com/bittopaz/logstash-filter-ipip>。
+
+用法很简单：
+
+```
+filter {
+    ipip {
+        source => "clientip"
+        target => "ipip"
+    }
+}
+```
+
+生成的 JSON 数据结构类似下面这样：
+
+```
+{
+    "clientip" : "",
+    "ipip" : {
+        "country" : "",
+        "city" : "",
+        "carrier" : "",
+        "province" : ""
+    }
+}
+```
+
+不过这个插件只实现了收费版的数据库基础格式。免费版的支持，收费版高级的经纬度、基站位置等，都没有随着更新。事实上，我们可以通过 ipip 官方的 Java 库，实现一个更灵活的 logstash-filter-ipip_java 插件出来，下期见。
+
+想了解更全面的 ELK Stack 知识和细节，欢迎购买我的《[ELK Stack权威指南](http://search.jd.com/Search?keyword=ELK%20stack)》，也欢迎加 QQ 群：315428175 哟。
