@@ -1,0 +1,33 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 15
+category: logstash
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 15
+---
+
+**本文作者：Medcl**
+
+Advent接力传到我这里了，今天我给大家介绍一下Beats，刚好前几天也有好多人问我它是干嘛的，之前的上海我有分享过Beats的内容，PPT在这里：<http://pan.baidu.com/s/1hrtHL0C>
+
+事实上Beats是一系列产品的统称，属于ElasticStack里面收集数据的这一层：Data Shipper Layer，包括以下若干Beats：
+
+* PacketBeat，用来嗅探和分析网络流量，如HTTP、MySQL、Redis等
+* TopBeat，用来收集系统的监控信息，功能如其名，类似*nix下的top命令，只不过所有的信息都会发送给后端的集中存储：Elasticsearch，这样你就可以很方便的监控所有的服务器的运行情况了
+* FileBeat，用来收集数据源是文件的数据，比如常见的系统日志、应用日志、网站日志等等，FIleBeat思路来自Logstash-forwarder，Beats团队加入之后重构改写而成，解决的就是Logstash作为Agent采集时占用太多被收集系统资源的问题，Beats家族都是Golang编写，效率高，占用内存和CPU比较少，非常适合作为agent跑着服务器上
+
+所以Beats其实是一套框架，另外的一个子项目Libbeat，就是所有beats都共用的模块，封装了所有的公共的组件，如配置管理、公共基础类、协议的解析处理、与Elasticsearch的操作等等，你可以很方便基于它实现你自己的beats，这也是Beats的目标，希望将来会出现更多的Beats，做各种各样的事情。
+ 
+另外PacketBeat比较特殊，它又是网络协议抓包和处理的一个框架，目前支持了常见的一些协议，要扩展未知的协议其实非常简单，PacketBeat作为一个框架，数据抓包和后续的存储已经帮你处理好了，你只需要实现你的协议的解码操作就行了，当然这块也是最难和最业务相关的。
+ 
+关于PacketBeat我回头再单独写一篇文章来介绍怎样编写一个PacketBeat的协议扩展吧，PacketBeat扩展的其它协议最终还是需要和PacketBeat集成在一起，也就是最终你的代码是要和PacketBeat的代码在一个工程里面的，而其它的Beats使用Libbeat完全是单独的Beat，如Filebeat和TopBeat，完全是独立打包和独立运行，这个也是两大Beats的主要区别。
+ 
+随便提一下，现在所有的这些Beats已经合并到一个项目里面来方便管理了，golang，you know：<https://github.com/elastic/beats>
+ 
+现在社区已经提交了的Beats：
+<https://www.elastic.co/guide/en/beats/libbeat/current/community-beats.html>
+ 
+明后天在Beijing的ArchSummit2015，我将在Elastic展台，欢迎过来骚扰，领取Elastic的各种贴纸，还有限量的印有Elastic的T恤，数量有限哦
+ 
+今天的Advent就这些吧。

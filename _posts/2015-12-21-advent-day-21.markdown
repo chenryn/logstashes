@@ -1,0 +1,33 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 21
+category: kibana
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 21
+---
+
+我们都知道Kibana4里，所有的aggregation生成的visualize都可以在请求细节查看里选择`Export`成raw或者formatted。其中formatted就是CSV文件。
+
+但是Discover页上，除了顶部的date_histogram这个visualize，更重要的是下边的search document table的内容。当我们通过搜索发现异常信息，想要长期保存证据，或者分享给其他没有权限的外部人员的时候，单纯保存search到es，或者分享单条日志的link都不顶用，还是需要能导出成一个文件。
+
+可惜Kibana4没有针对search document table的导出！
+
+国外一家叫MineWhat的公司，最近公开了一个非常细小的创新方案，意图解决这个问题。他们的方式是：避免修改Kibana源码，而通过chrome浏览器插件完成……
+
+点击这个地址安装chrome插件：<https://chrome.google.com/webstore/detail/elasticsearch-csv-exporte/kjkjddcjojneaeeppobfolgojhohbpjn/related>
+ 
+然后再访问Kibana的时候，你会发现自己的搜索框最右侧多了一个CSV按钮：
+
+![](http://minewhat.com/blog/content/images/2015/12/k1.jpg)
+
+然后点击这个『CSV』按钮，会弹出一片提示：
+
+![](http://minewhat.com/blog/content/images/2015/12/k2-1.jpg)
+
+可以点击选择，把search document table内容保存到本机的复制粘贴板，还是Google Drive网盘。
+我们当然选择本机……
+然后打开本地的文本文件，Ctrl+V，就看到编辑器里出现了整个CSV内容。
+实测下来，发现有个小问题，粘贴出来的数据里丢掉了空格~不过聊胜于无吧，还是介绍给大家一试。
+ 
+**注意：这个功能只会导出目前页面上已经展示出来的table内容。并不代表其使用了scroll API去ES拉取全部结果集！**

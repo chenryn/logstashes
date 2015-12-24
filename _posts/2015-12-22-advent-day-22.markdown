@@ -1,0 +1,143 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 22
+category: elasticsearch
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 22
+---
+
+网友们多次讨论如何利用 ES 计算用户留存率的问题。这是个比较尴尬的情况，如果多次请求再自己做一下运算，问题很简单。但如果想要一次请求得到最终结果，在没有完整 JOIN 支持的 ES 里又显得比较难以完成。
+
+目前我想到的比较容易达成的做法，是我们在记录用户登录操作日志的时候，把该用户的注册时间也同期输出。也就是说，这个索引的 mapping 是下面这样：
+
+```
+curl -XPUT 'http://127.0.0.1:9200/login-2015.12.23/' -d '{
+  "settings" : {
+    "number_of_shards" : 1
+  },
+  "mappings" : {
+    "logs" : {
+      "properties" : {
+        "uid" : { "type" : "string", "index" : "not_analyzed" },
+        "register_time" : { "type" : "date", "index" : "not_analyzed" },
+        "login_time" : { "type" : "date", "index" : "not_analyzed" }
+      }
+    }
+  }
+}'
+```
+
+那么实际记录的日志会类似这样：
+
+```
+{"index":{"_index":"login-2015.12.23","_type":"logs"}}
+{"uid":"1","register_time":"2015-12-23T12:00:00Z","login_time":"2015-12-23T12:00:00Z"}
+{"index":{"_index":"login-2015.12.23","_type":"logs"}}
+{"uid":"2","register_time":"2015-12-23T12:00:00Z","login_time":"2015-12-23T12:00:00Z"}
+{"index":{"_index":"login-2015.12.24","_type":"logs"}}
+{"uid":"1","register_time":"2015-12-23T12:00:00Z","login_time":"2015-12-24T12:00:00Z"}
+```
+
+这段我虚拟的数据，表示 uid 为 1 的用户，23 号注册并登录，24 号再次登录；uid 为 2 的用户，23 号注册并登录，24 号无登录。
+
+显然以这短短 3 行示例数据，我们口算都知道单日留存率是 50% 了。那么怎么通过一次 ES 请求也算出来呢？下面就要用到 ES 2.0 新增加的 pipeline aggregation 了。
+
+```
+curl -XPOST 'http://127.0.0.1:9200/login-2015.12.23,login-2015.12.24/_search' -d'
+{
+  "size" : 0,
+  "aggs" : {
+    "per_day" : {
+      "date_histogram" : {
+        "field":"register_time",
+        "format":"yyyy-MMM-dd",
+        "interval":"day"
+      },
+      "aggs" : {
+        "register_count" : {
+          "cardinality" : {
+            "field" : "uid"
+          }
+        },
+        "today" : {
+          "filter" : {
+            "range" : {
+              "login_time" : {
+                "gte" : "now-1d",
+                "lt" : "now"
+              }
+            }
+          },
+          "aggs" : {
+            "login_count" : {
+              "cardinality" : {
+                "field" : "uid"
+              }
+            }
+          }
+        },
+        "retention" : {
+          "bucket_script" : {
+            "buckets_path" : {
+              "today_count" : "today>login_count",
+              "yesterday_count" : "register_count"
+            },
+            "script" : {
+              "lang" : "expression",
+              "inline" : "today_count / yesterday_count"
+            }
+          }
+        }
+      }
+    }
+  }
+}'
+```
+
+这个 pipeline aggregation 在使用上有几个要点：
+
+* pipeline agg 的 parent agg 必须是返回数组的 buckets agg 类型。我这里曾经打算使用 filter agg 直接请求 `register_time:["now-2d" TO "now-1d"]`，结果报错说找不到 `buckets_path` 的 START_OBJECT。
+* bucket_script agg 同样受 scripting module 的影响。也就是说，官网示例里的 `"script":"today_count / yesterday_count"` 这种写法，是采用了 groovy 引擎的 inline 模式。在 ES 2.0 的默认设置下，是被禁止运行的！所以，应该按照 scripting module 的统一要求，改写成 file 形式存放到 `config/scripts` 下；或者改用 Lucene Expression 运行。考虑到 pipeline aggregation 只支持数值运算，这里使用 groovy 价值不大，所以直接指明 lang 参数即可。
+
+最终这次请求的响应如下：
+
+```
+{
+  "took" : 3,
+  "timed_out" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "failed" : 0
+  },
+  "hits" : {
+    "total" : 3,
+    "max_score" : 0.0,
+    "hits" : [ ]
+  },
+  "aggregations" : {
+    "per_day" : {
+      "buckets" : [ {
+        "key_as_string" : "2015-Dec-23",
+        "key" : 1450828800000,
+        "doc_count" : 3,
+        "today" : {
+          "doc_count" : 1,
+          "login_count" : {
+            "value" : 1
+          }
+        },
+        "register_count" : {
+          "value" : 2
+        },
+        "retention" : {
+          "value" : 0.5
+        }
+      } ]
+    }
+  }
+}
+```
+
+这个 retention 数据，就是我们要求解的 0.5 了。

@@ -1,0 +1,135 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 17
+category: elasticsearch
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 17
+---
+
+**本文作者childe**
+
+除了应用在日志系统外, 越来越多的业务数据也接入ES, 利用它天生强大的搜索性能和分布式可扩展, 可以为业务的精确快速灵活的搜索提供极大便利, 我觉得这是未来一个很好的方向.
+
+但是, 对它ES各种各样的搜索方式, 你了解了吗?
+
+我们来看几个"奇怪"的搜索.
+
+## 奇怪的打分
+
+### 奇怪的打分1
+
+我们有个数据结构是
+
+```
+{
+    "first_name":"string",
+    "last_name":"string"
+}
+```
+
+插入了几条数据, 有诸葛亮 诸葛明 诸葛暗 诸葛黑, 还有个人名字很奇怪, 叫司马诸葛.
+
+然后我们要搜索诸葛瑾, 虽然索引里面没有一个人叫这个名字, 但搜索出来诸葛亮也不错, 他们名字这么像, 说不定是亲兄弟, 可以顺藤摸瓜, 找到我们需要的信息呢.
+
+```
+{
+    "query": {
+        "multi_match": {
+            "query":       "诸葛瑜",
+            "type":        "most_fields",
+            "fields":      [ "*_name" ]
+        }
+    }
+}
+```
+
+但实际上呢, 司马诸葛这个人居然稳居搜索榜首位, 他是搞竞价排名了吧? 你知道其中的打分原理吗?
+
+### 奇怪的打分2
+
+我们有两条数据:
+
+```
+PUT /my_index/my_type/1
+{
+    "title": "Quick brown rabbits",
+    "body":  "Brown rabbits are commonly seen."
+}
+PUT /my_index/my_type/2
+{
+    "title": "Keeping pets healthy",
+    "body":  "My quick brown fox eats rabbits on a regular basis."
+}
+```
+
+要搜索
+
+```
+{
+    "query": {
+        "bool": {
+            "should": [
+                { "match": { "title": "Brown fox" }},
+                { "match": { "body":  "Brown fox" }}
+            ]
+        }
+    }
+}
+```
+
+第二条文档里面明确含有"brown fox"这个词组, 但是它的搜索得分比较低, 你知道为啥吗?
+
+## and用在哪
+
+```
+{
+    "query": {
+        "multi_match": {
+            "query":       "peter smith",
+            "type":        "most_fields",
+            "operator":    "and",
+            "fields":      [ "first_name", "last_name" ]
+        }
+    }
+}
+```
+
+你知道这个and代表什么吗?
+
+是说
+
+    A: 姓和名里面都要含有"peter smith",
+
+还是说
+    
+    B: 姓或者名里面要包含peter以及smith ?
+
+还有, 怎么才能获得另外一个效果呢?
+
+# 列表中的元素
+
+我们有一条数据如下(按汉语分词)
+
+```
+{
+    "时代":"三国",
+    "姓名": ["大司马"，"诸葛亮"]
+}
+```
+
+我以词组的方式搜索:
+
+```
+{
+    "query": {
+        "match_phrase": {
+            "姓名": "司马诸葛"
+        }
+    }
+}
+```
+
+能搜索到吗?
+
+上面这些其实都是[elasticsearch Definitive Guide](https://www.elastic.co/guide)里面的几个小例子, 欢迎大家继续去那里寻找答案和其他各种小技巧.

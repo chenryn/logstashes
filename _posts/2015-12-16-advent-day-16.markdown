@@ -1,0 +1,78 @@
+---
+layout: post
+title: ELK Stack Advent Calendar Day 16
+category: logstash
+---
+{% include JB/setup %}
+# ELK Stack Advent Calendar Day 16
+---
+
+**本文作者childe**
+
+看到前一天, Medcl 介绍了Beat, 我想今天我就介绍一下算是同一个领域的, 我们的一个小产品吧, 同样也基于elastic旗下的logstash-forwarder. 我真的不是来打广告的, 就是第一次写, 没经验, 看着前一天的文章, 顺手就想到了.
+
+在日志收集系统中, 从kafkf到ES这条路是没问题了, 但散布在各个服务器上采集日志的agent用logstash实在是太重了, 而且效率也低. 特别是我们有大量的windows服务器, 找一个合适的agent居然不是想象中的容易.
+
+logstash-forwarder对于日志文件的探测和offset记录, deadtime等配置都非常适合我们, 但惟一不支持吐数据到kafak,对我们来说是一个遗憾. 我和[oliver](https://github.com/oliveagle)做过一点改造之后, 让她支持了这个功能.
+
+目前我们所有iis服务器已经部署了这个应用, 效率高, 占资源小, 可以数据压缩, 支持简单的格式切割, 实乃windows居家必备(我真不是来打广告的). golang客户端, 还能直接发送到kafka, 想想就很贴心~
+
+贴上一段配置瞅瞅先, 启一个进程采集nginx和tomcat日志, 分别吐到kafka的2个topic中.
+
+```
+{
+  "files": [
+    {
+      "paths": [
+        "/var/log/nginx/*.log"
+      ],
+      "Fields":{
+        "type":"nginx"
+      },
+      "DeadTime": "30m"
+    },
+    {
+      "paths": [
+        "/var/log/tomcat/*.log",
+        "/var/log/tomcat/*/*.log"
+      ],
+      "Fields":{
+        "type":"tomcat"
+      },
+      "DeadTime": "30m"
+    }
+  ],
+  "kafka": {
+    "broker_list": ["10.0.0.1:9092","10.0.0.2:9092"],
+    "topic_id": "topic_name_change_it_{{.type}}",
+    "compression_codec": "gzip"
+  }
+}
+```
+
+再简单介绍一下参数吧,
+
+* DeadTime:30m 是说超过30分钟没有更新, 就不会再继续跟踪这个文件了(退出goroutine)
+* `"Fields":{ "type":"tomcat" }` , 会在每条日志中增加配置的字段
+* path目前就是用的golang官方库, 好像是还不支持递归多层目录查找, 反正我翻了一下文档, 没有找到.
+
+grok还不支持, 但简单的分割是可以的
+
+```
+"files": [
+  {
+    "paths": [
+      "d:\\target.txt"
+    ],
+    "FieldNames": ["datetime", "datetime", "s_ip", "cs_method", "cs_uri_stem", "cs_uri_query", "s_port", "time_taken"],
+    "Delimiter": "\\s+",
+    "QuoteChar": "\""
+  }
+]
+```
+
+以上配置就是说按空白符把日志切割来, 塞到对应的字段中去. 第一个第二个合在一起, 放在datetime字段中.
+
+其实还是有不少要完善的地方, 比如说没有带上机器的Hostname, 以及日志的路径. 在很多时候, 这些信息还是很有用的, 我们也会继续完善.
+
+现在放在了<https://github.com/childe/logstash-forwarder/tree/kafka>, 有需要的同学,可以去看下.
